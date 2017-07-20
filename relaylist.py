@@ -36,6 +36,7 @@ class RelayList():
                 fp1, fp2 = line.split(' ')
                 assert len(fp1) == 40
                 assert len(fp2) == 40
+                if fp1 > fp2: fp1, fp2 = fp2, fp1
                 self._pairs.add( (fp1, fp2) )
                 if len(self._pairs) >= self._max_pairs: break
         self._log.notice('Finished reading {} relay pairs from file'.format(
@@ -68,6 +69,7 @@ class RelayList():
         #for fp1 in all_fps:
         #    for fp2 in all_fps:
         #        if fp1 == fp2: continue
+        #        if fp1 > fp2: fp1, fp2 = fp2, fp1
         #        self._pairs.add( (fp1, fp2) )
         #        if len(self._pairs) >= self._max_pairs: break
         #    if len(self._pairs) >= self._max_pairs: break
@@ -75,6 +77,8 @@ class RelayList():
         # beter? method
         ###
         while len(self._pairs) < self._max_pairs:
+            fp1, fp2 = random.sample(all_fps, 2)
+            if fp1 > fp2: fp1, fp2 = fp2, fp1
             self._pairs.add( tuple(random.sample(all_fps, 2)) )
         self._log.notice('Finished reading {} relay pairs from the current '
                 'consensus'.format(len(self._pairs)))
