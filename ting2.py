@@ -43,6 +43,7 @@ def main():
         cache_dict = {}
         json.dump(cache_dict, open(cache_fname, 'wt'))
     cache_dict = json.load(open(cache_fname, 'rt'))
+    results_fname = os.path.join(result_dname, conf['data']['result_file'])
     batches = [ b for b in \
             batch(relay_list, conf.getint('ting','concurrent_threads')) ]
     log.notice("Doing {} pairs of relays in {} batches".format(
@@ -55,12 +56,16 @@ def main():
         cache_dict_lock.acquire()
         json.dump(cache_dict, open(cache_fname, 'wt'))
         cache_dict_lock.release()
+        with open(results_fname, 'at') as f:
+            for r in res:
+                if r['rtt'] != None:
+                    f.write('{}\n'.format(json.dumps(r)))
     pool.close()
     pool.join()
     for res in results:
         log.notice('Result: {} {} {}'.format(
             round(res['rtt']*1000,2) if res['rtt'] != None else 'None',
-            res['x'][0:8], res['y'][0:8]))
+            res['x']['nick'], res['y']['nick']))
     #for s in conf.sections():
     #    print(conf.items(s))
 

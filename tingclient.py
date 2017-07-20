@@ -150,9 +150,18 @@ class TingClient():
 
     def _create_result(self, rtt, fp1, fp2):
         return {
+                'time': time.time(),
                 'rtt': rtt,
-                'x': fp1, 'y': fp2,
-                'time': time.time()
+                'x': {
+                    'fp': fp1,
+                    'ip': self._cont.get_network_status(fp1).address,
+                    'nick': self._cont.get_network_status(fp1).nickname,
+                },
+                'y': {
+                    'fp': fp2,
+                    'ip': self._cont.get_network_status(fp2).address,
+                    'nick': self._cont.get_network_status(fp2).nickname,
+                },
         }
 
     def _create_rtt_cache_entry(self, rtt, path):
