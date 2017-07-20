@@ -3,8 +3,9 @@ from configparser import ConfigParser
 from pastlylogger import PastlyLogger
 from tingclient import TingClient
 from relaylist import RelayList
-import time
 from multiprocessing.dummy import Pool as ThreadPool
+from threading import Lock
+stream_creation_lock = Lock()
 
 # https://stackoverflow.com/q/8290397
 def batch(iterable, n = 1):
@@ -19,7 +20,7 @@ def batch(iterable, n = 1):
 
 def worker(args):
     relays, conf, log = args
-    ting_client = TingClient(conf, log)
+    ting_client = TingClient(conf, log, stream_creation_lock)
     return ting_client.tmp_test(*relays)
 
 def main():
@@ -27,21 +28,22 @@ def main():
     #log = PastlyLogger(info='/dev/stdout', overwrite=['info'])
     conf = ConfigParser()
     conf.read('config.ini')
-    relay_list = RelayList('file', conf['ting']['relay_list'])
-    ting_client = TingClient(conf, log)
+    relay_list = RelayList(conf, log)
     batches = [ b for b in \
             batch(relay_list, conf.getint('ting','concurrent_threads')) ]
     log.notice("Doing {} pairs of relays in {} batches".format(
         len(relay_list), len(batches)))
     results = []
+    pool = ThreadPool(conf.getint('ting','concurrent_threads'))
     for bat in batches:
-        num_threads = len(bat)
-        pool = ThreadPool(num_threads)
         rtts = pool.map(worker, [ (i,conf,log) for i in bat ])
-        pool.close()
-        pool.join()
         results.extend(rtts)
-    for rtt in results: print(round(rtt*1000,2))
+    pool.close()
+    pool.join()
+    for rtt in results:
+        log.notice('Result: {} {} {}'.format(
+                round(rtt[0]*1000,2) if rtt[0] != None else 'None',
+                rtt[1][0:8], rtt[2][0:8]))
     #for s in conf.sections():
     #    print(conf.items(s))
 

@@ -1,3 +1,4 @@
 venv*/
 tor/
 *.swp
+__pycache__/

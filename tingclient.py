@@ -1,14 +1,16 @@
-from stem import CircuitExtensionFailed, DescriptorUnavailable, SocketError
+from stem import ( CircuitExtensionFailed, DescriptorUnavailable,
+        InvalidRequest, SocketError
+)
 from stem.control import Controller, EventType
 import socks # PySocks
 import socket
 import time
-import threading
 
 class TingClient():
-    def __init__(self, conf, logger):
+    def __init__(self, conf, logger, stream_creation_lock):
         self._conf = conf
         self._log = logger
+        self._stream_creation_lock = stream_creation_lock
         self._cont = \
             self._init_controller(conf.getint('torclient','ctrl_port'))
 
@@ -34,6 +36,8 @@ class TingClient():
                 .format(port))
         cont.set_conf('__DisablePredictedCircuits', '1')
         cont.set_conf('__LeaveStreamsUnattached', '1')
+        cont.set_conf('LearnCircuitBuildTimeout','0')
+        cont.set_conf('CircuitBuildTimeout','10')
         return cont
 
     def _new_socket(self):
@@ -61,11 +65,13 @@ class TingClient():
         while attempts > 0:
             try:
                 attempts -= 1
-                log.info('Building circ: {}'.format(' -> '.join(relay_nicks)))
+                log.info('Building circ: {}'.format('->'.join(relay_nicks)))
                 circ_id = self._cont.new_circuit(path, await_build=True)
-            except CircuitExtensionFailed as e:
-                log.warn('Circuit failed to build: {}'.format(e))
+            except (InvalidRequest, CircuitExtensionFailed) as e:
+                log.warn('Failed to build circ: {}'.format(e))
             else:
+                log.debug('Built circ {} {}'.format(circ_id,
+                    '->'.join(relay_nicks)))
                 return circ_id
         return None
 
@@ -79,19 +85,27 @@ class TingClient():
         host = self._conf['ting']['target_host']
         port = self._conf.getint('ting','target_port')
         num_samples = eval(self._conf['ting']['num_samples'])
-        s = self._new_socket()
-        stream_event_listener = self._stream_event_listener(s, circ_id)
-        log.debug('Creating event listener circ {}'.format(circ_id))
+        log.debug('Waiting for lock to create stream')
+        self._stream_creation_lock.acquire()
+        log.debug('Received lock')
+        stream_event_listener = self._stream_event_listener(circ_id)
         self._cont.add_event_listener(stream_event_listener, EventType.STREAM)
-        #log.debug('New socket info: {}'.format(s.fileno()))
+        s = self._new_socket()
         try:
             log.info('Attempting connection to {}:{} through socks5 proxy'\
                 .format(host, port))
             s.connect( (host, port) )
+            self._cont.remove_event_listener(stream_event_listener)
         except (socks.ProxyConnectionError, socks.GeneralProxyError) as e:
             log.warn('Couldn\'t connect to {}:{} through socks5 proxy: {}'\
                 .format(host,port,e))
+            self._cont.remove_event_listener(stream_event_listener)
+            self._stream_creation_lock.release()
+            log.debug('Released lock to create stream')
         else:
+            self._cont.remove_event_listener(stream_event_listener)
+            self._stream_creation_lock.release()
+            log.debug('Released lock to create stream')
             msg, done = b'!', b'X'
             log.info('Sending {} tings on circ {}'.format(num_samples, circ_id))
             samples = []
@@ -106,41 +120,56 @@ class TingClient():
                 s.shutdown(socket.SHUT_RDWR)
                 log.info('Min RTT: {}'.format(min(samples)))
                 return min(samples)
-            except socket.timeout:
-                log.warn("Socket timed out on circ {}".format(circ_id))
+            except (BrokenPipeError, socket.timeout):
+                log.warn("Failed to measure over circ {} due to timeout or "
+                    "a broken pipe".format(circ_id))
                 return None
         finally:
             s.close()
-            log.debug('Removing event listener circ {}'.format(circ_id))
-            self._cont.remove_event_listener(stream_event_listener)
 
     def tmp_test(self, target1_fp, target2_fp):
         log = self._log
+        attempts = self._conf.getint('ting','measurement_attempts')
         w = self._conf['ting']['relay1_fp']
         x = target1_fp
         y = target2_fp
         z = self._conf['ting']['relay2_fp']
+
         path = [w,x,y,z]
+        wxyz_rtt, wxz_rtt, wyz_rtt = None, None, None
         circ_id = self._build_circ(path)
-        if circ_id == None: return None
-        wxyz_rtt = self.ting(circ_id)
+        if circ_id == None:
+            return None, target1_fp, target2_fp
+        for _ in range(0,attempts):
+            wxyz_rtt = self.ting(circ_id)
+            if wxyz_rtt != None: break
         self._close_circ(circ_id)
+        if wxyz_rtt == None: return None, target1_fp, target2_fp
+
         path = [w,x,z]
         circ_id = self._build_circ(path)
-        if circ_id == None: return None
-        wxz_rtt = self.ting(circ_id)
+        if circ_id == None:
+            return None, target1_fp, target2_fp
+        for _ in range(0,attempts):
+            wxz_rtt = self.ting(circ_id)
+            if wxz_rtt != None: break
         self._close_circ(circ_id)
+        if wxz_rtt == None: return None, target1_fp, target2_fp
+
         path = [w,y,z]
         circ_id = self._build_circ(path)
-        if circ_id == None: return None
-        wyz_rtt = self.ting(circ_id)
+        if circ_id == None:
+            return None, target1_fp, target2_fp
+        for _ in range(0,attempts):
+            wyz_rtt = self.ting(circ_id)
+            if wyz_rtt != None: break
         self._close_circ(circ_id)
+        if wyz_rtt == None: return None, target1_fp, target2_fp
         xy_rtt = wxyz_rtt - 0.5*wxz_rtt - 0.5*wyz_rtt
-        return xy_rtt
-        #xy_rtt *= 1000
-        #log.notice('RTT xy: {}'.format(round(xy_rtt,2)))
 
-    def _stream_event_listener(self, sock, circ_id):
+        return xy_rtt, target1_fp, target2_fp
+
+    def _stream_event_listener(self, circ_id):
         log = self._log
         def closure_stream_event_listener(st):
             if st.status == 'NEW' and st.purpose == 'USER':
@@ -148,5 +177,6 @@ class TingClient():
                     st.id, circ_id))
                 self._cont.attach_stream(st.id, circ_id)
             else:
-                log.debug('Ignoring {}'.format(st))
+                #log.debug('Ignoring {}'.format(st))
+                pass
         return closure_stream_event_listener
