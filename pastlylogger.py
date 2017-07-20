@@ -1,5 +1,5 @@
 from datetime import datetime
-from threading import Lock
+from threading import Lock, current_thread
 # Logging class inspired by Tor's logging API
 class PastlyLogger:
     # error, warn, etc. are file names to open for logging.
@@ -88,7 +88,10 @@ class PastlyLogger:
         assert fd
         lock.acquire()
         ts = datetime.now()
-        fd.write('[{}] [{}] {}\n'.format(ts, level, s))
+        if current_thread():
+            fd.write('[{}] [{}] [{}] {}\n'.format(ts, level, current_thread().name,s))
+        else:
+            fd.write('[{}] [{}] {}\n'.format(ts, level, s))
         lock.release()
 
     def flush(self):
