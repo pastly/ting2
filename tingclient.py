@@ -7,10 +7,11 @@ import socket
 import time
 
 class TingClient():
-    def __init__(self, conf, logger, stream_creation_lock):
+    def __init__(self, conf, logger, stream_creation_lock, cache_dict):
         self._conf = conf
         self._log = logger
         self._stream_creation_lock = stream_creation_lock
+        self._cache_dict, self._cache_dict_lock = cache_dict
         self._cont = \
             self._init_controller(conf.getint('torclient','ctrl_port'))
 
@@ -18,6 +19,15 @@ class TingClient():
         log = self._log
         if msg: log.error(msg)
         exit(1)
+
+    def _path_to_nicks(self, path):
+        relay_nicks = []
+        for fp in path:
+            n = '(unknown)'
+            try: n = self._cont.get_network_status(fp).nickname
+            except DescriptorUnavailable: n = fp[0:8]
+            relay_nicks.append(n)
+        return relay_nicks
 
     def _init_controller(self, port):
         log = self._log
@@ -55,13 +65,8 @@ class TingClient():
 
     def _build_circ(self, path):
         log = self._log
-        relay_nicks = []
+        relay_nicks = self._path_to_nicks(path)
         attempts = self._conf.getint('torclient','circ_build_attempts')
-        for fp in path:
-            n = '(unknown)'
-            try: n = self._cont.get_network_status(fp).nickname
-            except DescriptorUnavailable: n = fp[0:8]
-            relay_nicks.append(n)
         while attempts > 0:
             try:
                 attempts -= 1
@@ -127,7 +132,13 @@ class TingClient():
         finally:
             s.close()
 
-    def _rtt_on(self, path):
+    def _get_rtt_on(self, path):
+        cached_rtt = self._get_cached_rtt(path)
+        if cached_rtt != None:
+            relay_nicks = self._path_to_nicks(path)
+            self._log.info('Using cached RTT of {} for {}'.format(
+                cached_rtt, '->'.join(relay_nicks)))
+            return cached_rtt
         attempts = self._conf.getint('ting','measurement_attempts')
         circ_id = self._build_circ(path)
         if circ_id == None: return None
@@ -144,20 +155,75 @@ class TingClient():
                 'time': time.time()
         }
 
+    def _create_rtt_cache_entry(self, rtt, path):
+        self._log.info('Caching RTT of {} for {}'.format(
+            rtt, '->'.join(self._path_to_nicks(path))))
+        return {
+                'rtt': rtt,
+                'path': path,
+                'time': time.time()
+        }
+
+    def _cache_rtt(self, rtt, path):
+        assert len(path) == 3 or len(path) == 4
+        if len(path) == 3:
+            if not self._conf.getboolean('data','cache_3hop'): return
+            lifetime = eval(self._conf['data']['cache_3hop_life'])
+        else:
+            if not self._conf.getboolean('data','cache_4hop'): return
+            lifetime = eval(self._conf['data']['cache_4hop_life'])
+        key = '-'.join(path)
+        self._cache_dict_lock.acquire()
+        cache_dict = self._cache_dict
+        if key not in cache_dict:
+            cache_dict[key] = self._create_rtt_cache_entry(rtt, path)
+        else:
+            now = time.time()
+            cached_at = cache_dict[key]['time']
+            if cached_at + lifetime <= now or \
+                cache_dict[key]['rtt'] > rtt:
+                cache_dict[key] = self._create_rtt_cache_entry(rtt, path)
+        self._cache_dict_lock.release()
+
+    def _get_cached_rtt(self, path):
+        if len(path) == 3:
+            if not self._conf.getboolean('data','cache_3hop'): return None
+            lifetime = eval(self._conf['data']['cache_3hop_life'])
+        else:
+            if not self._conf.getboolean('data','cache_4hop'): return None
+            lifetime = eval(self._conf['data']['cache_4hop_life'])
+        key = '-'.join(path)
+        cache_dict = self._cache_dict
+        self._cache_dict_lock.acquire()
+        if key not in cache_dict: rtt = None
+        else:
+            now = time.time()
+            cached_at = cache_dict[key]['time']
+            if cached_at + lifetime < now: rtt = None
+            else: rtt = cache_dict[key]['rtt']
+        self._cache_dict_lock.release()
+        return rtt
+
     def perform_on(self, target1_fp, target2_fp):
         w = self._conf['ting']['relay1_fp']
         x, y = target1_fp, target2_fp
         z = self._conf['ting']['relay2_fp']
         wxyz_rtt, wxz_rtt, wyz_rtt = None, None, None
 
-        wxyz_rtt = self._rtt_on([w,x,y,z])
+        path = [w,x,y,z]
+        wxyz_rtt = self._get_rtt_on(path)
         if wxyz_rtt == None: return self._create_result(None, x, y)
+        else: self._cache_rtt(wxyz_rtt, path)
 
-        wxz_rtt = self._rtt_on([w,x,z])
+        path = [w,x,z]
+        wxz_rtt = self._get_rtt_on(path)
         if wxz_rtt == None: return self._create_result(None, x, y)
+        else: self._cache_rtt(wxz_rtt, path)
 
-        wyz_rtt = self._rtt_on([w,y,z])
+        path = [w,y,z]
+        wyz_rtt = self._get_rtt_on(path)
         if wyz_rtt == None: return self._create_result(None, x, y)
+        else: self._cache_rtt(wyz_rtt, path)
 
         xy_rtt = wxyz_rtt - 0.5*wxz_rtt - 0.5*wyz_rtt
         return self._create_result(xy_rtt, x, y)
