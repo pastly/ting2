@@ -127,47 +127,40 @@ class TingClient():
         finally:
             s.close()
 
-    def tmp_test(self, target1_fp, target2_fp):
-        log = self._log
+    def _rtt_on(self, path):
         attempts = self._conf.getint('ting','measurement_attempts')
+        circ_id = self._build_circ(path)
+        if circ_id == None: return None
+        for _ in range(0,attempts):
+            rtt = self.ting(circ_id)
+            if rtt != None: break
+        self._close_circ(circ_id)
+        return rtt
+
+    def _create_result(self, rtt, fp1, fp2):
+        return {
+                'rtt': rtt,
+                'x': fp1, 'y': fp2,
+                'time': time.time()
+        }
+
+    def perform_on(self, target1_fp, target2_fp):
         w = self._conf['ting']['relay1_fp']
-        x = target1_fp
-        y = target2_fp
+        x, y = target1_fp, target2_fp
         z = self._conf['ting']['relay2_fp']
-
-        path = [w,x,y,z]
         wxyz_rtt, wxz_rtt, wyz_rtt = None, None, None
-        circ_id = self._build_circ(path)
-        if circ_id == None:
-            return None, target1_fp, target2_fp
-        for _ in range(0,attempts):
-            wxyz_rtt = self.ting(circ_id)
-            if wxyz_rtt != None: break
-        self._close_circ(circ_id)
-        if wxyz_rtt == None: return None, target1_fp, target2_fp
 
-        path = [w,x,z]
-        circ_id = self._build_circ(path)
-        if circ_id == None:
-            return None, target1_fp, target2_fp
-        for _ in range(0,attempts):
-            wxz_rtt = self.ting(circ_id)
-            if wxz_rtt != None: break
-        self._close_circ(circ_id)
-        if wxz_rtt == None: return None, target1_fp, target2_fp
+        wxyz_rtt = self._rtt_on([w,x,y,z])
+        if wxyz_rtt == None: return self._create_result(None, x, y)
 
-        path = [w,y,z]
-        circ_id = self._build_circ(path)
-        if circ_id == None:
-            return None, target1_fp, target2_fp
-        for _ in range(0,attempts):
-            wyz_rtt = self.ting(circ_id)
-            if wyz_rtt != None: break
-        self._close_circ(circ_id)
-        if wyz_rtt == None: return None, target1_fp, target2_fp
+        wxz_rtt = self._rtt_on([w,x,z])
+        if wxz_rtt == None: return self._create_result(None, x, y)
+
+        wyz_rtt = self._rtt_on([w,y,z])
+        if wyz_rtt == None: return self._create_result(None, x, y)
+
         xy_rtt = wxyz_rtt - 0.5*wxz_rtt - 0.5*wyz_rtt
-
-        return xy_rtt, target1_fp, target2_fp
+        return self._create_result(xy_rtt, x, y)
 
     def _stream_event_listener(self, circ_id):
         log = self._log

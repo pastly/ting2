@@ -21,7 +21,7 @@ def batch(iterable, n = 1):
 def worker(args):
     relays, conf, log = args
     ting_client = TingClient(conf, log, stream_creation_lock)
-    return ting_client.tmp_test(*relays)
+    return ting_client.perform_on(*relays)
 
 def main():
     log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
@@ -36,14 +36,14 @@ def main():
     results = []
     pool = ThreadPool(conf.getint('ting','concurrent_threads'))
     for bat in batches:
-        rtts = pool.map(worker, [ (i,conf,log) for i in bat ])
-        results.extend(rtts)
+        res = pool.map(worker, [ (i,conf,log) for i in bat ])
+        results.extend(res)
     pool.close()
     pool.join()
-    for rtt in results:
+    for res in results:
         log.notice('Result: {} {} {}'.format(
-                round(rtt[0]*1000,2) if rtt[0] != None else 'None',
-                rtt[1][0:8], rtt[2][0:8]))
+            round(res['rtt']*1000,2) if res['rtt'] != None else 'None',
+            res['x'][0:8], res['y'][0:8]))
     #for s in conf.sections():
     #    print(conf.items(s))
 
