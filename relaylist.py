@@ -14,6 +14,7 @@ class RelayList():
             fname = conf['relaylist']['filename']
             return self._init_from_file(fname)
         elif source == 'internet': return self._init_from_internet()
+        elif source == 'stdin': return self._init_from_file('/dev/stdin')
         else:
             self._fail_hard('unknown source: {}. Failing'.format(source))
     def __iter__(self):
@@ -23,8 +24,8 @@ class RelayList():
         return len(self._pairs)
 
     def _init_from_file(self, fname):
-        if not os.path.isfile(fname):
-            self._fail_hard('{} doesn\'t exist. Failing.')
+        if not os.path.isfile(fname) and not os.path.islink(fname):
+            self._fail_hard('{} doesn\'t exist. Failing.'.format(fname))
         self._log.notice('Initializing RelayList from {}'.format(fname))
         self._pairs = set()
         with open(fname, 'rt') as f:

@@ -1,4 +1,8 @@
 venv*/
-tor/
 *.swp
 __pycache__/
+*relaylist.txt
+results
+template
+ting-proc-*
+tor-client-*

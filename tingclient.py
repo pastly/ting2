@@ -122,7 +122,8 @@ class TingClient():
                     end = time.time()
                     samples.append(end-start)
                 s.send(done)
-                s.shutdown(socket.SHUT_RDWR)
+                try: s.shutdown(socket.SHUT_RDWR)
+                except: pass
                 log.info('Min RTT: {}'.format(min(samples)))
                 return min(samples)
             except (BrokenPipeError, socket.timeout):

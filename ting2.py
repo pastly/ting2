@@ -8,6 +8,7 @@ from threading import Lock
 import time
 import os
 import json
+import argparse
 stream_creation_lock = Lock()
 cache_dict_lock = Lock()
 cache_dict = None
@@ -33,6 +34,14 @@ def main():
     #log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
     conf = ConfigParser()
     conf.read('config.ini')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ctrl-port', metavar='PORT',
+        help='Port on which to control Tor')
+    parser.add_argument('--socks-port', metavar='PORT',
+        help='Port on which to send traffic to Tor')
+    args = parser.parse_args()
+    if args.ctrl_port: conf['torclient']['ctrl_port'] = args.ctrl_port
+    if args.socks_port: conf['torclient']['socks_port'] = args.socks_port
     relay_list = RelayList(conf, log)
     result_dname = os.path.abspath(conf['data']['result_dir'])
     cache_fname = os.path.join(result_dname, conf['data']['rtt_cache_file'])
@@ -57,7 +66,7 @@ def main():
             start_time = time.time()
             #res = pool.map(worker, [ (i,conf,log) for i in bat ])
             res = pool.map(worker, [ (ting_clients[i], bat[i]) for i in \
-                range(0,num_threads) ])
+                range(0,len(bat)) ])
             end_time = time.time()
             duration = end_time - start_time
             results.extend(res)
