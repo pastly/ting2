@@ -39,7 +39,7 @@ def main():
     result_dname = os.path.abspath(conf['data']['result_dir'])
     cache_fname = os.path.join(result_dname, conf['data']['rtt_cache_file'])
     if not os.path.isfile(cache_fname):
-        os.makedirs(result_dname)
+        os.makedirs(result_dname, exist_ok=True)
         cache_dict = {}
         json.dump(cache_dict, open(cache_fname, 'wt'))
     cache_dict = json.load(open(cache_fname, 'rt'))
