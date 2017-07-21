@@ -149,19 +149,19 @@ class TingClient():
         return rtt
 
     def _create_result(self, rtt, fp1, fp2):
+        ip1, ip2 = ['0.0.0.0'] * 2
+        nick1, nick2 = ['(unknown)'] * 2
+        try: ns1 = self._cont.get_network_status(fp1)
+        except DescriptorUnavailable: pass
+        else: ip1, nick1 = ns1.address, ns1.nickname
+        try: ns2 = self._cont.get_network_status(fp2)
+        except DescriptorUnavailable: pass
+        else: ip2, nick2 = ns2.address, ns2.nickname
         return {
                 'time': time.time(),
                 'rtt': rtt,
-                'x': {
-                    'fp': fp1,
-                    'ip': self._cont.get_network_status(fp1).address,
-                    'nick': self._cont.get_network_status(fp1).nickname,
-                },
-                'y': {
-                    'fp': fp2,
-                    'ip': self._cont.get_network_status(fp2).address,
-                    'nick': self._cont.get_network_status(fp2).nickname,
-                },
+                'x': { 'fp': fp1, 'ip': ip1, 'nick': nick1, },
+                'y': { 'fp': fp2, 'ip': ip2, 'nick': nick2, },
         }
 
     def _create_rtt_cache_entry(self, rtt, path):
