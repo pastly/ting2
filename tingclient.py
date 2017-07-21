@@ -243,7 +243,11 @@ class TingClient():
             if st.status == 'NEW' and st.purpose == 'USER':
                 log.debug('Attaching stream {} to circ {}'.format(
                     st.id, circ_id))
-                self._cont.attach_stream(st.id, circ_id)
+                try:
+                    self._cont.attach_stream(st.id, circ_id)
+                except InvalidRequest as e:
+                    log.warn('Couldn\'t attach stream to circ {}: {}'.format(
+                        circ_id, e))
             else:
                 #log.debug('Ignoring {}'.format(st))
                 pass
