@@ -31,7 +31,7 @@ class TingClient():
 
     def _init_controller(self, port):
         log = self._log
-        log.notice('Initiazling Tor controller')
+        log.info('Initiazling Tor controller')
         try:
             cont = Controller.from_port(port=port)
         except SocketError:
