@@ -28,6 +28,16 @@ def worker(args):
     ting_client, relays = args
     return ting_client.perform_on(*relays)
 
+def seconds_to_duration(secs):
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    d, h, m, s = int(d), int(h), int(m), int(round(s,0))
+    if d > 0: return '{}d{}h{}m{}s'.format(d,h,m,s)
+    elif h > 0: return '{}h{}m{}s'.format(h,m,s)
+    elif m > 0: return '{}m{}s'.format(m,s)
+    else: return '{}s'.format(s)
+
 def main():
     global cache_dict
     log = PastlyLogger(debug='results/debug.log')
@@ -76,10 +86,11 @@ def main():
             valid_results = [ r for r in res if r['rtt'] != None ]
             with open(results_fname, 'at') as f:
                 for r in valid_results: f.write('{}\n'.format(json.dumps(r)))
-            log.notice('It took {} sec ({} sec per measurement) to process '
+            log.notice('It took {} ({} sec per measurement) to process '
                 'batch {}/{}. There were {} measurements, of which {} produced '
-                'results.'.format(round(duration,2), round(duration/len(bat),2),
-                    bat_num, len(batches), len(bat), len(valid_results)))
+                'results.'.format(seconds_to_duration(duration),
+                    round(duration/len(bat),2), bat_num, len(batches),
+                    len(bat), len(valid_results)))
     for res in results:
         log.notice('Result: {} {} {}'.format(
             round(res['rtt']*1000,2) if res['rtt'] != None else 'None',
