@@ -45,6 +45,16 @@ def query_yes_no(question, default="yes"):
         else: sys.stdout.write("Please respond with 'yes' or 'no' "
             "(or 'y' or 'n').\n")
 
+def seconds_to_duration(secs):
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    d, h, m, s = int(d), int(h), int(m), int(round(s,0))
+    if d > 0: return '{}d{}h{}m{}s'.format(d,h,m,s)
+    elif h > 0: return '{}h{}m{}s'.format(h,m,s)
+    elif m > 0: return '{}m{}s'.format(m,s)
+    else: return '{}s'.format(s)
+
 template_dir = os.path.abspath('template')
 num_procs = 4
 
@@ -57,7 +67,8 @@ for d in ting_dirs:
 for ting_dir in ting_dirs: shutil.copytree(template_dir, ting_dir)
 
 split_relay_list_dir = tempfile.mkdtemp()
-relay_list = os.path.abspath('2bignets-relaylist.txt')
+#relay_list = os.path.abspath('2bignets-relaylist.txt')
+relay_list = os.path.abspath('entire-network-relaylist.txt')
 split_list_length = 100
 subprocess.Popen(
     'split -l {} {}'.format(split_list_length, relay_list).split(),
@@ -79,7 +90,6 @@ for bat in batches:
             cwd=ting_dirs[i]))
     for proc in procs: proc.wait()
     end_time = time.time()
-    duration = end_time - start_time
-    print('That took {} seconds'.format(duration))
+    print('That took {}'.format(seconds_to_duration(end_time - start_time)))
 
 shutil.rmtree(split_relay_list_dir)
