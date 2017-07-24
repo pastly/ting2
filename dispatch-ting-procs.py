@@ -5,6 +5,7 @@ import sys
 import tempfile
 import subprocess
 import time
+import json
 
 def fail_hard(msg):
     print(msg)
@@ -55,6 +56,18 @@ def seconds_to_duration(secs):
     elif m > 0: return '{}m{}s'.format(m,s)
     else: return '{}s'.format(s)
 
+def combine_caches(cache_files):
+    cache = {}
+    for fname in cache_files:
+        tmp = json.load(open(fname, 'rt'))
+        print('    read {} items from {}'.format(len(tmp), fname))
+        for k in tmp:
+            if k not in cache: cache[k] = tmp[k]
+            elif tmp[k]['rtt'] < cache[k]['rtt']: cache[k] = tmp[k]
+    for fname in cache_files:
+        print('    writing {} items to {}'.format(len(cache), fname))
+        json.dump(cache, open(fname,'wt'))
+
 template_dir = os.path.abspath('template')
 num_procs = 4
 
@@ -91,5 +104,7 @@ for bat in batches:
     for proc in procs: proc.wait()
     end_time = time.time()
     print('That took {}'.format(seconds_to_duration(end_time - start_time)))
+    print('Combining caches')
+    combine_caches([ '{}/results/cache.json'.format(td) for td in ting_dirs ])
 
 shutil.rmtree(split_relay_list_dir)
