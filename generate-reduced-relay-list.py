@@ -34,11 +34,9 @@ notice('There are currently',len(relays),'relays in the entire Tor network')
 # Just do all relays
 #####
 all_relays = [ r.fingerprint for r in relays ]
-for a in all_relays:
-    for b in all_relays:
-        if a == b: continue
-        print(a,b)
-
+all_relays.sort()
+for i in range(0, len(all_relays)):
+    [ print(all_relays[i], relay_j) for relay_j in all_relays[i+1:] ]
 
 ######
 # Beginning of trying to limit to one relay per subnet
