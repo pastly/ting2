@@ -53,6 +53,9 @@ def main():
     if args.ctrl_port: conf['torclient']['ctrl_port'] = args.ctrl_port
     if args.socks_port: conf['torclient']['socks_port'] = args.socks_port
     relay_list = RelayList(conf, log)
+    if len(relay_list) < 1:
+        log.notice('There\'s nothing to do')
+        exit(0)
     result_dname = os.path.abspath(conf['data']['result_dir'])
     cache_fname = os.path.join(result_dname, conf['data']['rtt_cache_file'])
     if not os.path.isfile(cache_fname):

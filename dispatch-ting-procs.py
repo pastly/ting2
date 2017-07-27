@@ -58,15 +58,16 @@ def seconds_to_duration(secs):
 
 def combine_caches(cache_files):
     cache = {}
+    in_items, out_items = 0, 0
     for fname in cache_files:
         tmp = json.load(open(fname, 'rt'))
-        print('    read {} items from {}'.format(len(tmp), fname))
+        in_items += len(tmp)
         for k in tmp:
             if k not in cache: cache[k] = tmp[k]
             elif tmp[k]['rtt'] < cache[k]['rtt']: cache[k] = tmp[k]
-    for fname in cache_files:
-        print('    writing {} items to {}'.format(len(cache), fname))
-        json.dump(cache, open(fname,'wt'))
+    out_items = len(cache)
+    for fname in cache_files: json.dump(cache, open(fname,'wt'))
+    print('Deduped {} cache items down to {}.'.format(in_items, out_items))
 
 template_dir = os.path.abspath('template')
 num_procs = 4
@@ -81,7 +82,7 @@ for ting_dir in ting_dirs: shutil.copytree(template_dir, ting_dir)
 
 split_relay_list_dir = tempfile.mkdtemp()
 #relay_list = os.path.abspath('2bignets-relaylist.txt')
-relay_list = os.path.abspath('entire-network-relaylist.txt')
+relay_list = os.path.abspath('entirenetwork-relaylist.txt')
 split_list_length = 100
 subprocess.Popen(
     'split -l {} {}'.format(split_list_length, relay_list).split(),
@@ -89,6 +90,8 @@ subprocess.Popen(
 relay_lists = [ os.path.join(split_relay_list_dir, l) for l in \
     os.listdir(split_relay_list_dir) ]
 
+num_runs = 0
+total_run_time = 0
 batches = batch(relay_lists, num_procs)
 for bat in batches:
     relay_lists = bat
@@ -103,8 +106,14 @@ for bat in batches:
             cwd=ting_dirs[i]))
     for proc in procs: proc.wait()
     end_time = time.time()
-    print('That took {}'.format(seconds_to_duration(end_time - start_time)))
-    print('Combining caches')
-    combine_caches([ '{}/results/cache.json'.format(td) for td in ting_dirs ])
+    duration = end_time - start_time
+    total_run_time += duration
+    num_runs += 1
+    print('Run #{} took {}. Average run time {}. Total time {}.'.format(
+        num_runs,
+        seconds_to_duration(duration),
+        seconds_to_duration(total_run_time / num_runs),
+        seconds_to_duration(total_run_time)))
+    combine_caches(['{}/results/cache.json'.format(td) for td in ting_dirs])
 
 shutil.rmtree(split_relay_list_dir)
