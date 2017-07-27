@@ -60,6 +60,7 @@ def combine_caches(cache_files):
     cache = {}
     in_items, out_items = 0, 0
     for fname in cache_files:
+        if not os.path.exists(fname): continue
         tmp = json.load(open(fname, 'rt'))
         in_items += len(tmp)
         for k in tmp:
