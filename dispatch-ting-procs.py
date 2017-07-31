@@ -6,9 +6,11 @@ import tempfile
 import subprocess
 import time
 import json
+from pastlylogger import PastlyLogger
 
-def fail_hard(msg):
-    print(msg)
+log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
+def fail_hard(*msg):
+    if msg: log.error(*msg)
     exit(1)
 
 # https://stackoverflow.com/q/8290397
@@ -68,12 +70,13 @@ def combine_caches(cache_files):
             elif tmp[k]['rtt'] < cache[k]['rtt']: cache[k] = tmp[k]
     out_items = len(cache)
     for fname in cache_files: json.dump(cache, open(fname,'wt'))
-    print('Deduped {} cache items down to {}.'.format(in_items, out_items))
+    log.info('Deduped',in_items,'cache items down to',out_items)
+
 
 template_dir = os.path.abspath('template')
 num_procs = 4
 
-ting_dirs = [ 'ting-proc-{}'.format(i) for i in range(0,num_procs) ]
+ting_dirs = [ '/tmp/ting-proc-{}'.format(i) for i in range(0,num_procs) ]
 for d in ting_dirs:
     if os.path.exists(d):
         if not query_yes_no('{} exists. Okay to delete?'.format(d), 'no'):
@@ -81,9 +84,53 @@ for d in ting_dirs:
         else: shutil.rmtree(d)
 for ting_dir in ting_dirs: shutil.copytree(template_dir, ting_dir)
 
+class TingProc:
+    def __init__(self, ctrl_port, socks_port, cwd):
+            self.ctrl_port = ctrl_port
+            self.socks_port = socks_port
+            self.cwd = cwd
+            self.proc = None
+            self.started_at = None
+            self.num_relay_pairs = None
+            self.haved_post_logged = False
+    def is_running(self):
+        if not self.proc: return False
+        if self.proc.poll() == None: return True
+        return False
+    def wait(self):
+        assert self.proc != None
+        self.proc.wait()
+
+global_cache = 'results/cache.json'
+num_runs = 0
+overall_start_time = 0
+def cleanup_after_ting_proc(tp):
+    global num_runs
+    if tp.proc == None: return
+    if tp.haved_post_logged: return
+    duration = time.time() - tp.started_at
+    overall_duration = time.time() - overall_start_time
+    num_runs += 1
+    log.notice('TingProc#{}'.format(tp.ctrl_port-8720),'took approx.',
+        seconds_to_duration(duration),'measuring',tp.num_relay_pairs,
+        'relay pairs.',num_runs,'runs have taken',
+        seconds_to_duration(overall_duration))
+    tp.haved_post_logged = True
+    combine_caches([global_cache, '{}/results/cache.json'.format(tp.cwd)])
+
+ting_procs = [ TingProc(8720+i, 8730+i, '/tmp/ting-proc-{}'.format(i)) \
+        for i in range(0,num_procs) ]
+def get_next_ting_proc():
+    while True:
+        for tp in ting_procs:
+            if not tp.is_running():
+                cleanup_after_ting_proc(tp)
+                return tp
+        time.sleep(1)
+
 split_relay_list_dir = tempfile.mkdtemp()
-#relay_list = os.path.abspath('2bignets-relaylist.txt')
 relay_list = os.path.abspath('entirenetwork-relaylist.txt')
+#relay_list = os.path.abspath('relaylist.txt')
 split_list_length = 100
 subprocess.Popen(
     'split -l {} {}'.format(split_list_length, relay_list).split(),
@@ -91,30 +138,19 @@ subprocess.Popen(
 relay_lists = [ os.path.join(split_relay_list_dir, l) for l in \
     os.listdir(split_relay_list_dir) ]
 
-num_runs = 0
-total_run_time = 0
-batches = batch(relay_lists, num_procs)
-for bat in batches:
-    relay_lists = bat
-    procs = []
-    print('Starting {} more ting procs'.format(len(relay_lists)))
-    start_time = time.time()
-    for i in range(0, len(relay_lists)):
-        procs.append(subprocess.Popen(
+overall_start_time = time.time()
+for relay_list in relay_lists:
+    tp = get_next_ting_proc()
+    tp.started_at = time.time()
+    tp.num_relay_pairs = len([ l for l in open(relay_list, 'rt') ])
+    tp.haved_post_logged = False
+    tp.proc = subprocess.Popen(
             './ting2.py --ctrl-port {} --socks-port {}'.format(
-                8720+i, 8730+i).split(' '),
-            stdin=open(relay_lists[i], 'rt'),
-            cwd=ting_dirs[i]))
-    for proc in procs: proc.wait()
-    end_time = time.time()
-    duration = end_time - start_time
-    total_run_time += duration
-    num_runs += 1
-    print('Run #{} took {}. Average run time {}. Total time {}.'.format(
-        num_runs,
-        seconds_to_duration(duration),
-        seconds_to_duration(total_run_time / num_runs),
-        seconds_to_duration(total_run_time)))
-    combine_caches(['{}/results/cache.json'.format(td) for td in ting_dirs])
+                tp.ctrl_port, tp.socks_port).split(' '),
+            stdin=open(relay_list, 'rt'),
+            cwd=tp.cwd)
+for tp in ting_procs:
+    if tp.is_running(): tp.wait()
+    cleanup_after_ting_proc(tp)
 
 shutil.rmtree(split_relay_list_dir)

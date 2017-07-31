@@ -40,7 +40,7 @@ def seconds_to_duration(secs):
 
 def main():
     global cache_dict
-    log = PastlyLogger(debug='results/debug.log')
+    log = PastlyLogger(debug='results/debug.log', log_threads=True)
     #log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
     conf = ConfigParser()
     conf.read('config.ini')
