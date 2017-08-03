@@ -8,8 +8,8 @@ import socket
 acceptor = socket.socket()
 listen_ip = '216.218.222.14'
 listen_port = 16667
-listen_queue = 20
-max_concurrent_clients = 64
+listen_queue = 30
+max_concurrent_clients = 100
 acceptor.bind((listen_ip, listen_port))
 acceptor.listen(listen_queue)
 

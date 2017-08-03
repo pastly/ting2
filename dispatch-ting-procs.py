@@ -13,17 +13,6 @@ def fail_hard(*msg):
     if msg: log.error(*msg)
     exit(1)
 
-# https://stackoverflow.com/q/8290397
-def batch(iterable, n = 1):
-   current_batch = []
-   for item in iterable:
-       current_batch.append(item)
-       if len(current_batch) == n:
-           yield current_batch
-           current_batch = []
-   if current_batch:
-       yield current_batch
-
 # https://stackoverflow.com/a/3041990
 def query_yes_no(question, default="yes"):
     """Ask a yes/no question via input() and return their answer.
@@ -74,12 +63,14 @@ def combine_caches(cache_files):
 
 
 template_dir = os.path.abspath('template')
-num_procs = 4
+num_procs = 8
 
-ting_dirs = [ '/tmp/ting-proc-{}'.format(i) for i in range(0,num_procs) ]
+tmp_dir = '/tmp'
+
+ting_dirs = [ '{}/ting-proc-{}'.format(tmp_dir,i) for i in range(0,num_procs) ]
 for d in ting_dirs:
     if os.path.exists(d):
-        if not query_yes_no('{} exists. Okay to delete?'.format(d), 'no'):
+        if False and not query_yes_no('{} exists. Okay to delete?'.format(d), 'no'):
             fail_hard('Cannot continue')
         else: shutil.rmtree(d)
 for ting_dir in ting_dirs: shutil.copytree(template_dir, ting_dir)
@@ -104,21 +95,25 @@ class TingProc:
 global_cache = 'results/cache.json'
 num_runs = 0
 overall_start_time = 0
+total_run_time = 0 # used for avg run time, not a measure of wall time
 def cleanup_after_ting_proc(tp):
     global num_runs
+    global total_run_time
     if tp.proc == None: return
     if tp.haved_post_logged: return
     duration = time.time() - tp.started_at
+    total_run_time += duration
     overall_duration = time.time() - overall_start_time
     num_runs += 1
     log.notice('TingProc#{}'.format(tp.ctrl_port-8720),'took approx.',
         seconds_to_duration(duration),'measuring',tp.num_relay_pairs,
-        'relay pairs.',num_runs,'runs have taken',
-        seconds_to_duration(overall_duration))
+        'relay pairs.',
+        num_runs,'runs have taken',seconds_to_duration(overall_duration),'with '
+        'an average of',seconds_to_duration(total_run_time/num_runs))
     tp.haved_post_logged = True
     combine_caches([global_cache, '{}/results/cache.json'.format(tp.cwd)])
 
-ting_procs = [ TingProc(8720+i, 8730+i, '/tmp/ting-proc-{}'.format(i)) \
+ting_procs = [ TingProc(8720+i, 8730+i, '{}/ting-proc-{}'.format(tmp_dir,i)) \
         for i in range(0,num_procs) ]
 def get_next_ting_proc():
     while True:
@@ -129,11 +124,14 @@ def get_next_ting_proc():
         time.sleep(1)
 
 split_relay_list_dir = tempfile.mkdtemp()
-relay_list = os.path.abspath('entirenetwork-relaylist.txt')
+#relay_list = os.path.abspath('entirenetwork-relaylist.txt')
 #relay_list = os.path.abspath('relaylist.txt')
+relay_list = os.path.abspath(sys.argv[1])
+if not relay_list or not os.path.exists(relay_list):
+    fail_hard('Specify a relay list and make sure it exists')
 split_list_length = 100
 subprocess.Popen(
-    'split -l {} {}'.format(split_list_length, relay_list).split(),
+    'split -a 8 -l {} {}'.format(split_list_length, relay_list).split(),
     cwd=split_relay_list_dir).wait()
 relay_lists = [ os.path.join(split_relay_list_dir, l) for l in \
     os.listdir(split_relay_list_dir) ]
