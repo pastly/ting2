@@ -7,18 +7,16 @@ import json
 import lzma
 import gzip
 class RelayList():
-    def __init__(self, conf, logger):
-        self._conf = conf
+    def __init__(self, args, logger):
+        self._args = args
         self._log = logger
         self._pairs = set()
-        self._max_pairs = conf.getint('relaylist','max_pairs')
+        self._max_pairs = args.relay_max_pairs
         if self._max_pairs < 0: self._max_pairs = 1000000000000
-        source = conf['relaylist']['source']
-        if source == 'file':
-            fname = conf['relaylist']['filename']
-            self._init_from_file(fname)
+        source = args.relay_source
+        if source == 'file': self._init_from_file(args.relay_source_file)
         elif source == 'internet': self._init_from_internet()
-        elif source == 'stdin': self._init_from_file('/dev/stdin')
+        elif source == 'stdin': self._init_from_file(open('/dev/stdin', 'rt'))
         else: self._fail_hard('unknown source: {}. Failing'.format(source))
         self._prune_existing_results()
 
@@ -28,15 +26,10 @@ class RelayList():
     def __len__(self):
         return len(self._pairs)
 
-    def _init_from_file(self, fname):
-        if not os.path.isfile(fname) and not os.path.islink(fname):
-            self._fail_hard('{} doesn\'t exist. Failing.'.format(fname))
-        self._log.notice('Initializing RelayList from {}'.format(fname))
+    def _init_from_file(self, f):
+        self._log.notice('Initializing RelayList from {}'.format(f.name))
         self._pairs = set()
-        fname_ext = os.path.splitext(fname)[1]
-        if fname_ext == '.xz': f = lzma.open(fname, 'rt')
-        elif fname_ext in ['.gz','.gzip']: f = gzip.open(fname, 'rt')
-        else: f = open(fname, 'rt')
+        if f.seekable(): f.seek(0)
         for line in f:
             #line = line[:-1] # trailing newline
             line = line.strip()
@@ -58,9 +51,9 @@ class RelayList():
     def _init_from_internet(self):
         self._log.notice('Initializing RelayList from the current consensus')
         cont = None
-        ctrl_port = self._conf.getint('torclient','ctrl_port')
+        port = self._args.ctrl_port
         try:
-            cont = Controller.from_port(port=ctrl_port)
+            cont = Controller.from_port(port=port)
         except SocketError:
             self._fail_hard('SocketError: Couldn\'t connect to Tor control "\
                 "port {}'.format(port))
@@ -97,12 +90,11 @@ class RelayList():
                 'configured maximimum')
 
     def _prune_existing_results(self):
-        conf = self._conf
+        args = self._args
         log = self._log
-        life = eval(conf['data']['result_life'])
+        life = args.result_life
         now = time.time()
-        results_fname = os.path.join(conf['data']['result_dir'],
-                conf['data']['result_file'])
+        results_fname = os.path.abspath(args.out_result_file)
         if not os.path.isfile(results_fname): return
         results = []
         for line in open(results_fname, 'rt'): results.append(json.loads(line))

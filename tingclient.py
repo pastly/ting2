@@ -7,13 +7,13 @@ import socket
 import time
 
 class TingClient():
-    def __init__(self, conf, logger, stream_creation_lock, cache_dict):
-        self._conf = conf
+    def __init__(self, args, logger, stream_creation_lock, cache_dict):
+        self._args = args
         self._log = logger
         self._stream_creation_lock = stream_creation_lock
         self._cache_dict, self._cache_dict_lock = cache_dict
         self._cont = \
-            self._init_controller(conf.getint('torclient','ctrl_port'))
+            self._init_controller(args.ctrl_port)
 
     def _fail_hard(self, msg):
         log = self._log
@@ -52,10 +52,10 @@ class TingClient():
 
     def _new_socket(self):
         log = self._log
-        conf = self._conf
-        socks_host = conf['torclient']['socks_host']
-        socks_port = conf.getint('torclient','socks_port')
-        socks_timeout = eval(conf['torclient']['socks_timeout'])
+        args = self._args
+        socks_host = args.socks_host
+        socks_port = args.socks_port
+        socks_timeout = args.socks_timeout
         log.info('Creating socket through socks5 proxy at {}:{}'.format(
             socks_host, socks_port))
         s = socks.socksocket()
@@ -66,7 +66,7 @@ class TingClient():
     def _build_circ(self, path):
         log = self._log
         relay_nicks = self._path_to_nicks(path)
-        attempts = self._conf.getint('torclient','circ_build_attempts')
+        attempts = self._args.circ_build_attempts
         while attempts > 0:
             try:
                 attempts -= 1
@@ -87,9 +87,9 @@ class TingClient():
 
     def ting(self, circ_id):
         log = self._log
-        host = self._conf['ting']['target_host']
-        port = self._conf.getint('ting','target_port')
-        num_samples = eval(self._conf['ting']['num_samples'])
+        host = self._args.target_host
+        port = self._args.target_port
+        num_samples = self._args.samples
         log.debug('Waiting for lock to create stream')
         self._stream_creation_lock.acquire()
         log.debug('Received lock')
@@ -140,7 +140,7 @@ class TingClient():
             self._log.info('Using cached RTT of {} for {}'.format(
                 cached_rtt, '->'.join(relay_nicks)))
             return cached_rtt
-        attempts = self._conf.getint('ting','measurement_attempts')
+        attempts = self._args.measurement_attempts
         circ_id = self._build_circ(path)
         if circ_id == None: return None
         for _ in range(0,attempts):
@@ -177,11 +177,11 @@ class TingClient():
     def _cache_rtt(self, rtt, path):
         assert len(path) == 3 or len(path) == 4
         if len(path) == 3:
-            if not self._conf.getboolean('data','cache_3hop'): return
-            lifetime = eval(self._conf['data']['cache_3hop_life'])
+            if not self._args.cache_3hop: return
+            lifetime = self._args.cache_3hop_life
         else:
-            if not self._conf.getboolean('data','cache_4hop'): return
-            lifetime = eval(self._conf['data']['cache_4hop_life'])
+            if not self._args.cache_4hop: return
+            lifetime = self._args.cache_4hop_life
         key = '-'.join(path)
         self._cache_dict_lock.acquire()
         cache_dict = self._cache_dict
@@ -197,11 +197,11 @@ class TingClient():
 
     def _get_cached_rtt(self, path):
         if len(path) == 3:
-            if not self._conf.getboolean('data','cache_3hop'): return None
-            lifetime = eval(self._conf['data']['cache_3hop_life'])
+            if not self._args.cache_3hop: return None
+            lifetime = self._args.cache_3hop_life
         else:
-            if not self._conf.getboolean('data','cache_4hop'): return None
-            lifetime = eval(self._conf['data']['cache_4hop_life'])
+            if not self._args.cache_4hop: return None
+            lifetime = self._args.cache_4hop_life
         key = '-'.join(path)
         cache_dict = self._cache_dict
         self._cache_dict_lock.acquire()
@@ -215,9 +215,9 @@ class TingClient():
         return rtt
 
     def perform_on(self, target1_fp, target2_fp):
-        w = self._conf['ting']['relay1_fp']
+        w = self._args.w_relay
         x, y = target1_fp, target2_fp
-        z = self._conf['ting']['relay2_fp']
+        z = self._args.z_relay
         wxyz_rtt, wxz_rtt, wyz_rtt = None, None, None
 
         path = [w,x,y,z]

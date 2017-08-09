@@ -14,6 +14,9 @@ def notice(*args):
     #print(*args)
     pass
 
+fail_hard('Need to update this script to use args instead of a config file. '
+        'Or just hardcore the ctrl port as needed.')
+
 ctrl_port = conf.getint('torclient','ctrl_port')
 cont = None
 try:
