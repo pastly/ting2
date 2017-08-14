@@ -2,6 +2,7 @@
 import json
 import random
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, FileType
+from datetime import datetime
 
 def main(args):
     selected_relays = json.load(args.selected_relays)
@@ -12,6 +13,7 @@ def main(args):
         for fp2 in selected_relays[i+1:]:
             if fp1 < fp2: pairs.append('{} {}\n'.format(fp1,fp2))
             else: pairs.append('{} {}\n'.format(fp2,fp1))
+    args.outfile.write('# Generated on {}\n'.format(datetime.now()))
     args.outfile.write(''.join(pairs))
 
 if __name__=='__main__':
