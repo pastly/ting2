@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, FileType
 import os
 import shutil
 import sys
@@ -9,6 +10,7 @@ import json
 from pastlylogger import PastlyLogger
 
 log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
+log = PastlyLogger(notice='/dev/stdout', overwrite=['notice'])
 def fail_hard(*msg):
     if msg: log.error(*msg)
     exit(1)
@@ -47,7 +49,51 @@ def seconds_to_duration(secs):
     elif m > 0: return '{}m{}s'.format(m,s)
     else: return '{}s'.format(s)
 
-def combine_caches(cache_files):
+def make_ting_dirs(args):
+    ting_dirs = [ '{}/ting-proc-{}'.format(args.tmpdir,i) \
+            for i in range(0,len(args.socks_port)) ]
+    for d in ting_dirs:
+        if os.path.exists(d):
+            if not query_yes_no('{} exists. Okay to delete?'.format(d), 'no'):
+                fail_hard('Cannot continue')
+            shutil.rmtree(d)
+        os.mkdir(d)
+        os.mkdir(os.path.join(d,'data'))
+    files = [ f for f in os.listdir() if f[-3:] == '.py' ]
+    for ting_dir in ting_dirs:
+        for f in files: shutil.copy2(f, ting_dir)
+    return ting_dirs
+
+def get_relaylist_files(args):
+    relaylist_files = []
+    all_files = os.listdir(args.relaylist_dir)
+    all_files.sort()
+    for fname in all_files:
+        fname = os.path.join(args.relaylist_dir, fname)
+        root, ext = os.path.splitext(fname)
+        if root in relaylist_files and ext == '.done':
+            relaylist_files.remove(root)
+        else:
+            relaylist_files.append(fname)
+    return relaylist_files
+
+class TingProc:
+    def __init__(self, ctrl_port, socks_port, cwd):
+            self.ctrl_port = ctrl_port
+            self.socks_port = socks_port
+            self.cwd = cwd
+            self.proc = None
+            self.cleaned_up = False
+            self.relay_pairs_fname = None
+    def is_running(self):
+        if not self.proc: return False
+        if self.proc.poll() == None: return True
+        return False
+    def wait(self):
+        assert self.proc != None
+        self.proc.wait()
+
+def combine_caches(*cache_files):
     cache = {}
     in_items, out_items = 0, 0
     for fname in cache_files:
@@ -61,94 +107,121 @@ def combine_caches(cache_files):
     for fname in cache_files: json.dump(cache, open(fname,'wt'))
     log.info('Deduped',in_items,'cache items down to',out_items)
 
+def combine_results(main_fname, sub_fname):
+    if not os.path.exists(sub_fname): return
+    with open(main_fname, 'at') as out_file:
+        for line in open(sub_fname, 'rt'):
+            line = line.strip()
+            if len(line) <= 0: continue
+            if line[0] == '#': continue
+            out_file.write('{}\n'.format(line))
 
-template_dir = os.path.abspath('template')
-num_procs = 8
-
-tmp_dir = '/tmp'
-
-ting_dirs = [ '{}/ting-proc-{}'.format(tmp_dir,i) for i in range(0,num_procs) ]
-for d in ting_dirs:
-    if os.path.exists(d):
-        if False and not query_yes_no('{} exists. Okay to delete?'.format(d), 'no'):
-            fail_hard('Cannot continue')
-        else: shutil.rmtree(d)
-for ting_dir in ting_dirs: shutil.copytree(template_dir, ting_dir)
-
-class TingProc:
-    def __init__(self, ctrl_port, socks_port, cwd):
-            self.ctrl_port = ctrl_port
-            self.socks_port = socks_port
-            self.cwd = cwd
-            self.proc = None
-            self.started_at = None
-            self.num_relay_pairs = None
-            self.haved_post_logged = False
-    def is_running(self):
-        if not self.proc: return False
-        if self.proc.poll() == None: return True
-        return False
-    def wait(self):
-        assert self.proc != None
-        self.proc.wait()
-
-global_cache = 'results/cache.json'
-num_runs = 0
-overall_start_time = 0
-total_run_time = 0 # used for avg run time, not a measure of wall time
-def cleanup_after_ting_proc(tp):
-    global num_runs
-    global total_run_time
+def cleanup_after_ting_proc(args, tp):
     if tp.proc == None: return
-    if tp.haved_post_logged: return
-    duration = time.time() - tp.started_at
-    total_run_time += duration
-    overall_duration = time.time() - overall_start_time
-    num_runs += 1
-    log.notice('TingProc#{}'.format(tp.ctrl_port-8720),'took approx.',
-        seconds_to_duration(duration),'measuring',tp.num_relay_pairs,
-        'relay pairs.',
-        num_runs,'runs have taken',seconds_to_duration(overall_duration),'with '
-        'an average of',seconds_to_duration(total_run_time/num_runs))
-    tp.haved_post_logged = True
-    combine_caches([global_cache, '{}/results/cache.json'.format(tp.cwd)])
+    if tp.cleaned_up: return
+    tp.cleaned_up = True
+    global_cache = args.out_cache_file
+    tp_cache = os.path.join(tp.cwd,'data','cache.json')
+    combine_caches(global_cache,tp_cache)
+    global_results = args.out_result_file
+    tp_results = os.path.join(tp.cwd,'data','results.json')
+    combine_results(global_results, tp_results)
+    if os.path.exists(tp_results):
+        os.remove(tp_results)
+    open(tp.relay_pairs_fname+'.done', 'at') # touch
 
-ting_procs = [ TingProc(8720+i, 8730+i, '{}/ting-proc-{}'.format(tmp_dir,i)) \
-        for i in range(0,num_procs) ]
-def get_next_ting_proc():
+def get_next_ting_proc(args, ting_procs):
     while True:
         for tp in ting_procs:
             if not tp.is_running():
-                cleanup_after_ting_proc(tp)
+                cleanup_after_ting_proc(args, tp)
                 return tp
         time.sleep(1)
 
-split_relay_list_dir = tempfile.mkdtemp()
-#relay_list = os.path.abspath('entirenetwork-relaylist.txt')
-#relay_list = os.path.abspath('relaylist.txt')
-relay_list = os.path.abspath(sys.argv[1])
-if not relay_list or not os.path.exists(relay_list):
-    fail_hard('Specify a relay list and make sure it exists')
-split_list_length = 100
-subprocess.Popen(
-    'split -a 8 -l {} {}'.format(split_list_length, relay_list).split(),
-    cwd=split_relay_list_dir).wait()
-relay_lists = [ os.path.join(split_relay_list_dir, l) for l in \
-    os.listdir(split_relay_list_dir) ]
+def main(args):
+    log.notice('Called as:',*sys.argv)
+    ting_dirs = make_ting_dirs(args)
+    relaylist_files = get_relaylist_files(args)
+    ting_procs = [ TingProc(args.ctrl_port[i], args.socks_port[i],
+        ting_dirs[i]) for i in range(0, len(args.socks_port)) ]
+    log.notice('Will use',len(ting_procs),'ting procs to process',
+            len(relaylist_files),'realylist files')
+    start = time.time()
+    last_stat_at = start
+    for i, rl in enumerate(relaylist_files):
+        tp = get_next_ting_proc(args, ting_procs)
+        tp.cleaned_up = False
+        tp.relay_pairs_fname = rl
+        tp.proc = subprocess.Popen(
+            './ting2.py --ctrl-port {} --socks-port {} '\
+            '--w-relay {} --z-relay {} --samples {} '\
+            '--target-host {} --target-port {} '\
+            '--threads {} --relay-source stdin --cache-3hop '\
+            .format(tp.ctrl_port, tp.socks_port,
+            args.w_relay, args.z_relay, args.samples,
+            args.target_host, args.target_port,
+            args.threads).strip().split(' '),
+            stdin=open(rl, 'rt'), cwd=tp.cwd)
+        now = time.time()
+        if last_stat_at + args.stats_interval <= now:
+            dur = seconds_to_duration(now - start)
+            rem = ((now - start) * len(relaylist_files) / i) - (now - start)
+            rem = seconds_to_duration(rem)
+            log.notice('We are on item {}/{} ({}% done)'.format(i,
+                len(relaylist_files), round(i*100.0/len(relaylist_files),1)),
+                'It has taken',dur,'and we expect to be done in',rem)
+            last_stat_at = now
+    for tp in ting_procs:
+        if tp.is_running():
+            tp.wait()
+        cleanup_after_ting_proc(args, tp)
 
-overall_start_time = time.time()
-for relay_list in relay_lists:
-    tp = get_next_ting_proc()
-    tp.started_at = time.time()
-    tp.num_relay_pairs = len([ l for l in open(relay_list, 'rt') ])
-    tp.haved_post_logged = False
-    tp.proc = subprocess.Popen(
-            './ting2.py --ctrl-port {} --socks-port {}'.format(
-                tp.ctrl_port, tp.socks_port).split(' '),
-            stdin=open(relay_list, 'rt'),
-            cwd=tp.cwd)
-for tp in ting_procs:
-    if tp.is_running(): tp.wait()
-    cleanup_after_ting_proc(tp)
-
-shutil.rmtree(split_relay_list_dir)
+if __name__=='__main__':
+    parser = ArgumentParser(
+            formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--tmpdir', metavar='DIR', type=str,
+            help='Directory in which to put temporary ting data dirs',
+            default='/tmp')
+    parser.add_argument('--relaylist-dir', metavar='DIR', type=str,
+            help='Directory containing a bunch of relaylist files. We will '
+            'feed them to ting processes one at a time.',
+            required=True)
+    parser.add_argument('--socks-port', metavar='PORT', type=int,
+            help='Add a port to the list of socks ports. The number of socks '
+            'ports determines the number of ting2.py processes to run.',
+            required=True, action='append')
+    parser.add_argument('--ctrl-port', metavar='PORT', type=int,
+            help='Add a port to the list of control ports. They correspond '
+            'to the socks ports in the order they are specified. The number '
+            'of ctrl and socks ports must be equal.',
+            required=True, action='append')
+    parser.add_argument('--threads', metavar='NUM', type=int,
+            help='Number of threads a ting process should run in parallel',
+            default=16)
+    parser.add_argument('--w-relay', metavar='FP', type=str, required=True,
+            help='Fingerprint of the relay to use in the W position')
+    parser.add_argument('--z-relay', metavar='FP', type=str, required=True,
+            help='Fingerprint of the relay to use in the Z position')
+    parser.add_argument('--samples', metavar='NUM', type=int,
+            help='How many "tings" to send over a completed circuit and take '
+            'the min() of and call the RTT', default=200)
+    parser.add_argument('--target-host', metavar='HOST', type=str,
+            help='Host/IP that the echo server is running', required=True)
+    parser.add_argument('--target-port', metavar='PORT', type=int,
+            help='Port on which the echo server is running', default=16667)
+    parser.add_argument('--out-cache-file', metavar='FNAME',
+            help='Name of file to store cached data in',
+            type=str, default='data/cache.json')
+    parser.add_argument('--out-result-file', metavar='FNAME',
+            help='Name of file to which to write results',
+            type=str, default='data/results.json')
+    parser.add_argument('--stats-interval', metavar='SECS', type=float,
+            help='Log information about our progress every SECS seconds at '
+            'level "notice"', default=60)
+    args = parser.parse_args()
+    assert len(args.ctrl_port) == len(args.socks_port)
+    assert len(args.w_relay) == 40
+    assert len(args.z_relay) == 40
+    assert os.path.exists(args.relaylist_dir) and \
+            os.path.isdir(args.relaylist_dir)
+    exit(main(args))

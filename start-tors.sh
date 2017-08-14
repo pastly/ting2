@@ -5,7 +5,7 @@ TOR_BIN="$HOME/src/tor/src/or/tor"
 mkdir $DD
 # SocksPorts will be whatever is listed in the for loop
 # ControlPorts will be +1 of SocksPorts
-for A in 12000 12002 12004 12006; do 
+for A in 12000 12002 12004 12006 12008 12010; do
     $TOR_BIN \
         --SocksPort $A \
         --ControlPort $(($A+1)) \

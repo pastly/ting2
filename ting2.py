@@ -6,12 +6,10 @@ from relaylist import RelayList
 from resultsmanager import ResultsManager
 from threading import Event, Lock, Thread
 from queue import Empty, Queue
-import time
-import os
-import json
+import json, os, sys, time
 
-#log = PastlyLogger(debug='data/debug.log', log_threads=True)
-log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'], log_threads=True)
+log = PastlyLogger(notice='data/notice.log', log_threads=True)
+#log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'], log_threads=True)
 
 def seconds_to_duration(secs):
     m, s = divmod(secs, 60)
@@ -28,7 +26,7 @@ class ClientThread():
             results_manager, is_shutting_down, name):
         self._is_shutting_down = is_shutting_down
         self._stream_creation_lock = stream_creation_lock
-        self._cache_dict = cache_dict
+        self.cache_dict = cache_dict
         self._results_manager = results_manager
         self._args = args
         self._log = log
@@ -44,7 +42,7 @@ class ClientThread():
 
     def _enter(self):
         self._client = TingClient(self._args, self._log,
-                self._stream_creation_lock, self._cache_dict,
+                self._stream_creation_lock, self.cache_dict,
                 self._results_manager)
         while True:
             fp1, fp2 = None, None
@@ -56,10 +54,23 @@ class ClientThread():
             if fp1 and fp2:
                 self._client.perform_on(fp1,fp2)
 
-def get_next_client_thread(threads):
+cleanup_count = 0
+def cleanup_after_ting_thread(args, thr, force=False):
+    global cleanup_count
+    cleanup_count += 1
+    if force or cleanup_count >= args.write_cache_every:
+        if not force: cleanup_count -= args.write_cache_every
+        cache_dict, cache_dict_lock = thr.cache_dict
+        cache_fname = args.out_cache_file
+        with cache_dict_lock:
+            log.info('Writing',len(cache_dict),'cached items to cache file')
+            json.dump(cache_dict, open(cache_fname, 'wt'))
+
+def get_next_client_thread(args, threads):
     while True:
         for thr in threads:
             if not thr.input.full():
+                cleanup_after_ting_thread(args, thr)
                 return thr
         time.sleep(0.5)
 
@@ -68,6 +79,7 @@ def dispatch_client_thread(thr, fp1, fp2):
     thr.input.put( (fp1, fp2) )
 
 def main(args):
+    log.notice('Called as:',*sys.argv)
     kill_client_threads = Event()
     kill_results_thread = Event()
     stream_creation_lock = Lock()
@@ -92,7 +104,7 @@ def main(args):
     last_stat_at = start
     for i, item in enumerate(relay_list):
         fp1, fp2 = item
-        dispatch_client_thread(get_next_client_thread(client_threads),
+        dispatch_client_thread(get_next_client_thread(args, client_threads),
             fp1, fp2)
         now = time.time()
         if last_stat_at + args.stats_interval <= now:
@@ -104,7 +116,9 @@ def main(args):
                 'taken',dur,'and we expect to be done in',rem)
             last_stat_at = now
     kill_client_threads.set()
-    for thr in [ t for t in client_threads if t.thread ]: thr.wait()
+    for thr in [ t for t in client_threads if t.thread ]:
+        thr.wait()
+    cleanup_after_ting_thread(args, client_threads[0], force=True)
     kill_results_thread.set()
 
 if __name__ == '__main__':
@@ -158,7 +172,7 @@ if __name__ == '__main__':
             type=str, default='data/results.json')
     parser.add_argument('--write-results-every', metavar='NUM',
             help='Write results to file every time we collect NUM results',
-            default=1)
+            default=10)
     parser.add_argument('--cache-4hop', action='store_true',
             help='Whether or not to cache 4hop results in the cache file')
     parser.add_argument('--cache-4hop-life', metavar='SECS', type=int,
@@ -169,6 +183,9 @@ if __name__ == '__main__':
     parser.add_argument('--cache-3hop-life', metavar='SECS', type=int,
             help='How long to consider 3hop cached results fresh',
             default=60*60*24*1)
+    parser.add_argument('--write-cache-every', metavar='NUM',
+            help='Write cache file after every NUM collected results',
+            default=10)
     parser.add_argument('--result-life', metavar='SECS', type=int,
             help='When starting up and reading relay pairs from a source, we '
             'ignore a pair if we have a recent enough result already',
