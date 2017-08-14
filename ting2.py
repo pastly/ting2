@@ -125,7 +125,7 @@ if __name__ == '__main__':
             choices=['internet','file','stdin'], default='internet')
     parser.add_argument('--relay-source-file', metavar='FNAME',
             help='If SRC is file, the name of the file to read',
-            type=FileType('rt'), default='relaylist.txt')
+            type=FileType('rt'), default='/dev/null')
     parser.add_argument('--relay-max-pairs', metavar='NUM', type=int,
             help='Maximum number of relay pairs to read from SRC',
             default=100)
