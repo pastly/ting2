@@ -103,7 +103,7 @@ if __name__ == '__main__':
             help='Fingerprint of the relay to use in the Z position')
     parser.add_argument('--circ-build-attempts', metavar='NUM', type=int,
             help='Number of times we should try to build a circuit before '
-            'starting a measurement', default=5)
+            'starting a measurement', default=3)
     parser.add_argument('--measurement-attempts', metavar='NUM', type=int,
             help='Number of times we should try to collect all the samples '
             'over a completed circuit', default=3)
