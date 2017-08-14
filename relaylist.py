@@ -46,7 +46,7 @@ class RelayList():
             len(self._pairs)))
         if len(self._pairs) >= self._max_pairs:
             self._log.warn('We stopped reading {} because we hit our '
-                'configured maximimum number of relay pairs'.format(fname))
+                'configured maximimum number of relay pairs'.format(f.name))
 
     def _init_from_internet(self):
         self._log.notice('Initializing RelayList from the current consensus')
