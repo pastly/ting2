@@ -93,8 +93,11 @@ class PastlyLogger:
         lock.acquire()
         ts = datetime.now()
         if log_threads:
-            fd.write('[{}] [{}] [{}] {}\n'.format(ts, level,
-                current_thread().name, ' '.join([str(_) for _ in s])))
+            thr_name = '(unknown)'
+            try: thr_name = current_thread().name
+            except TypeError: pass
+            fd.write('[{}] [{}] [{}] {}\n'.format(ts, level, thr_name,
+                ' '.join([str(_) for _ in s])))
         else:
             fd.write('[{}] [{}] {}\n'.format(ts, level,
                 ' '.join([str(_) for _ in s])))
