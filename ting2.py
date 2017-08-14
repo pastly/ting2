@@ -3,29 +3,15 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, FileType
 from pastlylogger import PastlyLogger
 from tingclient import TingClient
 from relaylist import RelayList
-from multiprocessing.dummy import Pool as ThreadPool
-from threading import Lock
+from resultsmanager import ResultsManager
+from threading import Event, Lock, Thread
+from queue import Empty, Queue
 import time
 import os
 import json
-stream_creation_lock = Lock()
-cache_dict_lock = Lock()
-cache_dict = None
 
-# https://stackoverflow.com/q/8290397
-def batch(iterable, n = 1):
-   current_batch = []
-   for item in iterable:
-       current_batch.append(item)
-       if len(current_batch) == n:
-           yield current_batch
-           current_batch = []
-   if current_batch:
-       yield current_batch
-
-def worker(args):
-    ting_client, relays = args
-    return ting_client.perform_on(*relays)
+#log = PastlyLogger(debug='data/debug.log', log_threads=True)
+log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'], log_threads=True)
 
 def seconds_to_duration(secs):
     m, s = divmod(secs, 60)
@@ -37,54 +23,89 @@ def seconds_to_duration(secs):
     elif m > 0: return '{}m{}s'.format(m,s)
     else: return '{}s'.format(s)
 
+class ClientThread():
+    def __init__(self, args, log, stream_creation_lock, cache_dict,
+            results_manager, is_shutting_down, name):
+        self._is_shutting_down = is_shutting_down
+        self._stream_creation_lock = stream_creation_lock
+        self._cache_dict = cache_dict
+        self._results_manager = results_manager
+        self._args = args
+        self._log = log
+        self.input = Queue(maxsize=1)
+        self.thread = Thread(target=self._enter)
+        self.thread.name = name
+        self.name = self.thread.name
+        self.thread.start()
+
+    def wait(self):
+        assert self.thread != None
+        self.thread.join()
+
+    def _enter(self):
+        self._client = TingClient(self._args, self._log,
+                self._stream_creation_lock, self._cache_dict,
+                self._results_manager)
+        while True:
+            fp1, fp2 = None, None
+            try: fp1, fp2 = self.input.get(timeout=1)
+            except Empty:
+                if self._is_shutting_down.is_set(): break
+                self._log.debug('No pending work')
+                continue
+            if fp1 and fp2:
+                self._client.perform_on(fp1,fp2)
+
+def get_next_client_thread(threads):
+    while True:
+        for thr in threads:
+            if not thr.input.full():
+                return thr
+        time.sleep(0.5)
+
+def dispatch_client_thread(thr, fp1, fp2):
+    log.info('Giving',thr.name,fp1,fp2)
+    thr.input.put( (fp1, fp2) )
+
 def main(args):
-    global cache_dict
-    #log = PastlyLogger(debug='data/debug.log', log_threads=True)
-    log = PastlyLogger(debug='/dev/stdout', overwrite=['debug'])
+    kill_client_threads = Event()
+    kill_results_thread = Event()
+    stream_creation_lock = Lock()
+    cache_dict_lock = Lock()
+    cache_dict = None
     relay_list = RelayList(args, log)
     if len(relay_list) < 1:
         log.notice('There\'s nothing to do')
         exit(0)
+    rm = ResultsManager(args, log, kill_results_thread)
     cache_fname = os.path.abspath(args.out_cache_file)
     if not os.path.isfile(cache_fname):
         os.makedirs(os.path.dirname(cache_fname), exist_ok=True)
         cache_dict = {}
         json.dump(cache_dict, open(cache_fname, 'wt'))
     cache_dict = json.load(open(cache_fname, 'rt'))
-    results_fname = os.path.abspath(args.out_result_file)
-    num_threads = args.threads
-    batches = [ b for b in batch(relay_list, num_threads) ]
-    log.notice("Doing {} pairs of relays in {} batches".format(
-        len(relay_list), len(batches)))
-    results = []
-    with ThreadPool(num_threads) as pool:
-        ting_clients = [ TingClient(args, log,
-            stream_creation_lock, (cache_dict, cache_dict_lock) ) for _ in \
-            range(0,num_threads) ]
-        bat_num = 0
-        for bat in batches:
-            bat_num += 1
-            start_time = time.time()
-            res = pool.map(worker, [ (ting_clients[i], bat[i]) for i in \
-                range(0,len(bat)) ])
-            end_time = time.time()
-            duration = end_time - start_time
-            results.extend(res)
-            cache_dict_lock.acquire()
-            json.dump(cache_dict, open(cache_fname, 'wt'))
-            cache_dict_lock.release()
-            valid_results = [ r for r in res if r['rtt'] != None ]
-            with open(results_fname, 'at') as f:
-                for r in valid_results: f.write('{}\n'.format(json.dumps(r)))
-            log.notice('It took {} ({} sec per measurement) to process '
-                'batch {}/{}. There were {} measurements, of which {} produced '
-                'results.'.format(seconds_to_duration(duration),
-                    round(duration/len(bat),2), bat_num, len(batches),
-                    len(bat), len(valid_results)))
-    for res in results:
-        log.notice('Result: {} {} {}'.format(
-            round(res['rtt']*1000,2) if res['rtt'] != None else 'None',
-            res['x']['nick'], res['y']['nick']))
+    client_threads = [ ClientThread(args, log, stream_creation_lock,
+        (cache_dict, cache_dict_lock), rm, kill_client_threads,
+        'worker-{}'.format(i)) \
+        for i in range(0, args.threads) ]
+    start = time.time()
+    last_stat_at = start
+    for i, item in enumerate(relay_list):
+        fp1, fp2 = item
+        dispatch_client_thread(get_next_client_thread(client_threads),
+            fp1, fp2)
+        now = time.time()
+        if last_stat_at + args.stats_interval <= now:
+            dur = seconds_to_duration(now - start)
+            rem = ((now - start) * len(relay_list) / i) - (now - start)
+            rem = seconds_to_duration(rem)
+            log.notice('We are on item {}/{} ({}% done)'.format(i,
+                len(relay_list), round(i*100.0/len(relay_list),1)),'It has '
+                'taken',dur,'and we expect to be done in',rem)
+            last_stat_at = now
+    kill_client_threads.set()
+    for thr in [ t for t in client_threads if t.thread ]: thr.wait()
+    kill_results_thread.set()
 
 if __name__ == '__main__':
     parser = ArgumentParser(
@@ -135,6 +156,9 @@ if __name__ == '__main__':
     parser.add_argument('--out-result-file', metavar='FNAME',
             help='Name of file to which to write results',
             type=str, default='data/results.json')
+    parser.add_argument('--write-results-every', metavar='NUM',
+            help='Write results to file every time we collect NUM results',
+            default=1)
     parser.add_argument('--cache-4hop', action='store_true',
             help='Whether or not to cache 4hop results in the cache file')
     parser.add_argument('--cache-4hop-life', metavar='SECS', type=int,
@@ -149,6 +173,9 @@ if __name__ == '__main__':
             help='When starting up and reading relay pairs from a source, we '
             'ignore a pair if we have a recent enough result already',
             default=60*60*24*100)
+    parser.add_argument('--stats-interval', metavar='SECS', type=float,
+            help='Log information about our progress every SECS seconds at '
+            'level "notice"', default=60)
     args = parser.parse_args()
     assert len(args.w_relay) == 40
     assert len(args.z_relay) == 40

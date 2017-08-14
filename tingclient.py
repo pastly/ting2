@@ -7,11 +7,13 @@ import socket
 import time
 
 class TingClient():
-    def __init__(self, args, logger, stream_creation_lock, cache_dict):
+    def __init__(self, args, logger, stream_creation_lock, cache_dict,
+            results_manager):
         self._args = args
         self._log = logger
         self._stream_creation_lock = stream_creation_lock
         self._cache_dict, self._cache_dict_lock = cache_dict
+        self._results_manager = results_manager
         self._cont = \
             self._init_controller(args.ctrl_port)
 
@@ -149,22 +151,6 @@ class TingClient():
         self._close_circ(circ_id)
         return rtt
 
-    def _create_result(self, rtt, fp1, fp2):
-        ip1, ip2 = ['0.0.0.0'] * 2
-        nick1, nick2 = ['(unknown)'] * 2
-        try: ns1 = self._cont.get_network_status(fp1)
-        except DescriptorUnavailable: pass
-        else: ip1, nick1 = ns1.address, ns1.nickname
-        try: ns2 = self._cont.get_network_status(fp2)
-        except DescriptorUnavailable: pass
-        else: ip2, nick2 = ns2.address, ns2.nickname
-        return {
-                'time': time.time(),
-                'rtt': rtt,
-                'x': { 'fp': fp1, 'ip': ip1, 'nick': nick1, },
-                'y': { 'fp': fp2, 'ip': ip2, 'nick': nick2, },
-        }
-
     def _create_rtt_cache_entry(self, rtt, path):
         self._log.info('Caching RTT of {} for {}'.format(
             rtt, '->'.join(self._path_to_nicks(path))))
@@ -222,21 +208,28 @@ class TingClient():
 
         path = [w,x,y,z]
         wxyz_rtt = self._get_rtt_on(path)
-        if wxyz_rtt == None: return self._create_result(None, x, y)
+        if wxyz_rtt == None:
+            return self._results_manager.add_result(
+                    self._results_manager.make_result(None,x,y))
         else: self._cache_rtt(wxyz_rtt, path)
 
         path = [w,x,z]
         wxz_rtt = self._get_rtt_on(path)
-        if wxz_rtt == None: return self._create_result(None, x, y)
+        if wxz_rtt == None:
+            return self._results_manager.add_result(
+                    self._results_manager.make_result(None,x,y))
         else: self._cache_rtt(wxz_rtt, path)
 
         path = [w,y,z]
         wyz_rtt = self._get_rtt_on(path)
-        if wyz_rtt == None: return self._create_result(None, x, y)
+        if wyz_rtt == None:
+            return self._results_manager.add_result(
+                    self._results_manager.make_result(None,x,y))
         else: self._cache_rtt(wyz_rtt, path)
 
         xy_rtt = wxyz_rtt - 0.5*wxz_rtt - 0.5*wyz_rtt
-        return self._create_result(xy_rtt, x, y)
+        return self._results_manager.add_result(
+                self._results_manager.make_result(xy_rtt,x,y))
 
     def _stream_event_listener(self, circ_id):
         log = self._log
