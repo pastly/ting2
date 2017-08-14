@@ -93,7 +93,7 @@ def ting_within_group(group, args, sample_size, attempt_num='?'):
     #print(input_data)
     ting.proc = subprocess.Popen(
             './ting2.py --ctrl-port {} --socks-port {} --w-relay {} '\
-                '--z-relay {} --target-host {}'\
+                '--z-relay {} --target-host {} --relay-source stdin'\
                 .format(ting.ctrl_port, ting.socks_port,
                 'B28D5058E30620358B33D75BFB9F20192CF82270',
                 '16ED9CBEA6671C020F598D64A30EA996DFE370FF',
