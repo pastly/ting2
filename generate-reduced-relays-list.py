@@ -72,8 +72,7 @@ def create_ting_datadir(datadir):
     if os.path.exists(datadir):
         assert os.path.isdir(datadir)
         shutil.rmtree(datadir)
-    fnames = ['ting2.py', 'pastlylogger.py', 'tingclient.py','relaylist.py',
-            'config.ini']
+    fnames = ['ting2.py', 'pastlylogger.py', 'tingclient.py','relaylist.py']
     os.mkdir(datadir)
     os.mkdir(os.path.join(datadir, 'results'))
     for fname in fnames: shutil.copy2(fname, datadir)
