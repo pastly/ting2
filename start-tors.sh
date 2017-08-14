@@ -17,7 +17,7 @@ for A in 12000 12002 12004 12006; do
         --LearnCircuitBuildTimeout 0 \
         --CircuitBuildTimeout 10 \
         --RunAsDaemon 1 \
-        --Bridge "127.0.0.1:9003 B28D5058E30620358B33D75BFB9F20192CF82270" \
+        --Bridge "216.218.222.14:9003 B28D5058E30620358B33D75BFB9F20192CF82270" \
         --UseBridges 1 \
         ;
 done
