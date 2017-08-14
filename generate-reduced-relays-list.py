@@ -92,8 +92,12 @@ def ting_within_group(group, args, sample_size, attempt_num='?'):
     for pair in pairs: input_data += '{} {}\n'.format(*pair)
     #print(input_data)
     ting.proc = subprocess.Popen(
-            './ting2.py --ctrl-port {} --socks-port {}'.format(
-                ting.ctrl_port, ting.socks_port).split(' '),
+            './ting2.py --ctrl-port {} --socks-port {} --w-relay {} '\
+                '--z-relay {} --target-host {}'\
+                .format(ting.ctrl_port, ting.socks_port,
+                'B28D5058E30620358B33D75BFB9F20192CF82270',
+                '16ED9CBEA6671C020F598D64A30EA996DFE370FF',
+                '216.218.222.14').split(' '),
             stdin=subprocess.PIPE,
             cwd=ting.cwd)
     ting.proc.communicate(bytes(input_data, 'utf-8'))
