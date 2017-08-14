@@ -19,13 +19,6 @@ def fail_hard(*msg):
     if msg: log.error(*msg)
     exit(1)
 
-fail_hard('This will append to the output file over and over again '
-        'making it stupidly long and requring too much work to parse the '
-        'results. The solution is to seek back to position 0 in the output '
-        'file before writing the results again. Remove this warning if you '
-        'don\'t mind the extra work. Otherwise, take the time to fix it '
-        'properly.')
-
 def seconds_to_duration(secs):
     m, s = divmod(secs, 60)
     h, m = divmod(m, 60)
@@ -209,6 +202,7 @@ def main(args):
                 seconds_to_duration(end-start),'Will be done in ~',
                 seconds_to_duration(total_time/(i+1)*(len(groups)-i-1)))
         relays_to_use.extend(rtu)
+        if args.outfile.seekable(): args.outfile.seek(0)
         json.dump(relays_to_use, args.outfile)
     log.notice('Ready to ting between the',len(relays_to_use),'representative '
             'relays.')
