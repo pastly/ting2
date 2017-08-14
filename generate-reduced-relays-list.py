@@ -93,11 +93,11 @@ def ting_within_group(group, args, sample_size, attempt_num='?'):
     #print(input_data)
     ting.proc = subprocess.Popen(
             './ting2.py --ctrl-port {} --socks-port {} --w-relay {} '\
-                '--z-relay {} --target-host {} --relay-source stdin'\
+                '--z-relay {} --target-host {} --target-port {} '
+                '--relay-source stdin --samples {}'\
                 .format(ting.ctrl_port, ting.socks_port,
-                'B28D5058E30620358B33D75BFB9F20192CF82270',
-                '16ED9CBEA6671C020F598D64A30EA996DFE370FF',
-                '216.218.222.14').split(' '),
+                args.w_relay, args.z_relay,
+                args.target_host, args.target_port, args.samples).split(' '),
             stdin=subprocess.PIPE,
             cwd=ting.cwd)
     ting.proc.communicate(bytes(input_data, 'utf-8'))
@@ -223,6 +223,8 @@ if __name__=='__main__':
     DEF_CTRL_PORT = 8720
     DEF_SOCKS_PORT = 8730
     DEF_DATADIR = os.path.abspath('/tmp/tmpting')
+    DEF_SAMPLES = 30
+    DEF_TARGET_PORT = 16667
     parser.add_argument('-g','--groups',
             help='Input file with relays split into groups',
             default=DEF_RELAYS_FILE, type=FileType('rt'))
@@ -255,9 +257,23 @@ if __name__=='__main__':
         default=DEF_SOCKS_PORT, type=int)
     parser.add_argument('--datadir', help='Ting data dir to create',
             default=DEF_DATADIR, type=str)
+    parser.add_argument('--samples', help='Ting samples per relay pair',
+            default=DEF_SAMPLES, type=int)
+    parser.add_argument('--w-relay', help='FP of W relay', type=str,
+            required=True)
+    parser.add_argument('--z-relay', help='FP of Z relay', type=str,
+            required=True)
+    parser.add_argument('--target-host', help='Host/IP of the echo server',
+            required=True)
+    parser.add_argument('--target-port', help='Port of the echo server',
+            default=DEF_TARGET_PORT)
     args = parser.parse_args()
     if args.max_allowed_rtt != DEF_MAX_ALLOWED_RTT:
         args.max_allowed_rtt = args.max_allowed_rtt[len(DEF_MAX_ALLOWED_RTT):]
     args.max_allowed_rtt.sort()
+    if len(args.w_relay) != 40:
+        fail_hard('--w-relay doesn\'t look like a fingerprint')
+    if len(args.z_relay) != 40:
+        fail_hard('--z-relay doesn\'t look like a fingerprint')
     exit(main(args))
 
