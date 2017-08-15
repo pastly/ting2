@@ -2,8 +2,7 @@ venv*/
 *.swp
 __pycache__/
 *relaylist.txt
+*relaypairs.txt
 results/
 data/
 template
-ting-proc-*
-tor-client-*

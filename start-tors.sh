@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Helper script to start a number of Tor processes for mtdns to then use
+# Helper script to start a number of Tor processes for ting2 to then use
 DD=$(pwd)/tordatadirs
 TOR_BIN="$HOME/src/tor/src/or/tor"
 mkdir $DD
