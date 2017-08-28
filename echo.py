@@ -21,7 +21,7 @@ def child_proc(pid, acceptor, listen_ip, listen_port):
     try:
         while True:
             conn, addr = acceptor.accept()
-            log('[',pid,'] Accepted connection from',addr)
+            log('[{}]'.format(pid),'Accepted connection from',addr)
             data = conn.recv(1)
             while data and data != b'X':
                 try:
